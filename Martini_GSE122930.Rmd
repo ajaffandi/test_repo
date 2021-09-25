@@ -1,0 +1,132 @@
+---
+title: "Martini GSE122930"
+author: "Alsya Affandi"
+date: "12/2/2020"
+output: html_document
+---
+  
+```{r packages}
+# install.packages(c("devtools","Matrix"))
+library(devtools)
+library(Matrix)
+
+# install_bitbucket("nygcresearch/seurat-publicrelease.git", ref="bc12d1b")
+library(Seurat)
+library(tidyverse)
+
+library(ggplot2)
+library(RColorBrewer)
+library(Connectome)
+library(tidyverse)
+```
+
+## Load the data & Create Seurat Objects
+
+```{r import}
+data_dir <-"T:/scRNA-Seq/Datasets/Alsya - Martini et al/Data_renamed/GSE122930_Sham_1_week_matrix/"
+list.files(data_dir)
+data.sham1w <- Read10X(data.dir = data_dir)
+sham1w<- CreateSeuratObject(counts = data.sham1w, min.cells = 3, min.features = 200,names.field = c(1),project="martini")
+
+data_dir <-"T:/scRNA-Seq/Datasets/Alsya - Martini et al/Data_renamed/GSE122930_Sham_4_weeks_repA+B_matrix/"
+list.files(data_dir)
+data.sham4w <- Read10X(data.dir = data_dir)
+sham4w <- CreateSeuratObject(counts = data.sham4w, min.cells = 3, min.features = 200,names.field = c(1),project="martini")
+
+data_dir <-"T:/scRNA-Seq/Datasets/Alsya - Martini et al/Data_renamed/GSE122930_TAC_1_week_repA+B/"
+list.files(data_dir)
+data.TAC1w <- Read10X(data.dir = data_dir)
+TAC1w <- CreateSeuratObject(counts = data.TAC1w, min.cells = 3, min.features = 200,names.field = c(1),project="martini")
+
+data_dir <-"T:/scRNA-Seq/Datasets/Alsya - Martini et al/Data_renamed/GSE122930_TAC_4_weeks_repA+B/"
+list.files(data_dir)
+data.TAC4w <- Read10X(data.dir = data_dir)
+TAC4w <- CreateSeuratObject(counts = data.TAC4w, min.cells = 3, min.features = 200,names.field = c(1),project="martini")
+
+
+##Dataset Martini: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE122930
+##Original paper: https://pubmed.ncbi.nlm.nih.gov/31661975/
+
+```
+
+## Merge Seurat Objects
+```{r}
+martini.merged <- merge(sham1w, y = c(sham4w,TAC1w,TAC4w), add.cell.ids = c("sham1w", "sham4w", "TAC1w","TAC4w"),project="martini")
+martini.merged
+
+rm(data.sham1w)
+rm(data.sham4w)
+rm(data.TAC1w)
+rm(data.TAC4w)
+rm(sham1w)
+rm(sham4w)
+rm(TAC1w)
+rm(TAC4w)
+```
+
+## Run Base Seurat
+```{r seurat}
+martini.merged <- NormalizeData(object = martini.merged)
+martini.merged <- FindVariableFeatures(object = martini.merged)
+martini.merged <- ScaleData(object = martini.merged)
+martini.merged <- RunPCA(object = martini.merged)
+martini.merged <- FindNeighbors(object = martini.merged)
+martini.merged <- FindClusters(object = martini.merged)
+martini.merged <- RunUMAP(martini.merged, 
+                reduction = "pca", 
+               dims = 1:40)
+
+```
+
+## Assign groups
+```{r}
+martini.merged$treatment <- ifelse((grepl("^sham", colnames(martini.merged))),"sham","TAC")
+
+martini.merged$sample <- ifelse((grepl("^sham1w", colnames(martini.merged))),"sham1w",
+                                ifelse((grepl("^sham4w", colnames(martini.merged))),"sham4w",
+                                       ifelse((grepl("^TAC1w", colnames(martini.merged))),"TAC1w",
+                                              "TAC4w")))
+
+martini.merged$timepoint <- ifelse((grepl("^sham1w", colnames(martini.merged))),"1w",
+                                ifelse((grepl("^sham4w", colnames(martini.merged))),"4w",
+                                       ifelse((grepl("^TAC1w", colnames(martini.merged))),"1w",
+                                              "4w")))
+
+```
+
+# subset macrophages
+```{r}
+martini.mac <- subset(martini.merged, idents = c("1","5","10","11","12","13","15","17"))
+
+```
+
+# findallmarkers
+```{r}
+martini.markers <- FindAllMarkers(martini.merged, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+martini.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+martini.markers %>% filter(cluster == 1) %>% top_n(n = 10, wt = avg_logFC)
+
+top20.martini.merged.11 <- martini.markers %>% filter(cluster == 11) %>% top_n(n = 20, wt = avg_logFC)
+
+DotPlot(martini.mac, features = top20.martini.merged.11$gene) + coord_flip()
+
+
+```
+
+```{r}
+#cell count pbs vs bleo
+table(Idents(martini.mac), martini.mac$sample)
+Pf4.producer <- subset(martini.mac, Pf4>0)
+table(Idents(Pf4.producer), Pf4.producer$sample)
+non.Pf4.producer <- subset(martini.mac, Pf4<1)
+table(Idents(non.Pf4.producer), non.Pf4.producer$sample)
+```
+
+# UMAP (Fig. S1)
+```{r}
+DimPlot(object = martini.merged, reduction = "umap", label=TRUE) + NoLegend()
+FeaturePlot(martini.merged, features = c("Cd68","Flt3","Pf4","S100a9"))
+
+```
+
+
